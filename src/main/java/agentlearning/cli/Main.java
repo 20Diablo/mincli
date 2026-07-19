@@ -1,7 +1,10 @@
 package agentlearning.cli;
 
+import agentlearning.agent.Agent;
 import agentlearning.llm.DeepSeekClient;
 import agentlearning.llm.Message;
+import agentlearning.tool.ReadFileTool;
+import agentlearning.tool.ToolRegistry;
 import okio.JvmSystemFileSystem;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
@@ -21,24 +24,21 @@ public class Main {
             return;
         }
 
+        // 组装：客户端 + 工具注册表 + Agent
         DeepSeekClient client = new DeepSeekClient(apiKey);
-
-        // 维护对话历史（多轮对话靠它）
-        List<Message> history = new ArrayList<>();
-        history.add(Message.system("你是一个简洁友好的助手。"));
+        ToolRegistry toolRegistry = new ToolRegistry();
+        toolRegistry.register(new ReadFileTool());   // 注册工具
+        Agent agent = new Agent(client, toolRegistry);
 
         Scanner scanner = new Scanner(System.in);
-
-        while(true){
+        System.out.println("minicli (阶段2) 已启动，输入 exit 退出。");
+        while (true) {
             System.out.print("\n你: ");
             String input = scanner.nextLine();
             if ("exit".equalsIgnoreCase(input.trim())) break;
-            history.add(Message.user(input));           // 把用户输入加进历史
-            String reply = client.chat(history);         // 发给模型
-            history.add(Message.assistant(reply));        // 把回复也加进历史（下一轮要带上）
+            String reply = agent.run(input);
             System.out.println("助手: " + reply);
         }
-        System.out.println("再见");
     }
 
 }
