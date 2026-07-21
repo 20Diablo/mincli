@@ -73,7 +73,7 @@
                         <configuration>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>agentlearning.mincli.Main</mainClass>
+                                    <mainClass>agentlearning.cli.Main</mainClass>
                                 </transformer>
                             </transformers>
                         </configuration>

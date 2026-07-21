@@ -22,4 +22,9 @@ public class ToolRegistry {
     }
 
     public Collection<Tool> all() { return tools.values(); }
+
+    // 按名字拿tool
+    public Tool get(String name) {
+        return tools.get(name);
+    }
 }

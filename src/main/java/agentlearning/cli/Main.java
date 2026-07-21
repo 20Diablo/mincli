@@ -1,37 +1,40 @@
 package agentlearning.cli;
 
 import agentlearning.agent.Agent;
+import agentlearning.hitl.ApprovalHandler;
 import agentlearning.llm.DeepSeekClient;
-import agentlearning.llm.Message;
-import agentlearning.tool.ReadFileTool;
-import agentlearning.tool.ToolRegistry;
-import okio.JvmSystemFileSystem;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
+import agentlearning.policy.PathGuard;
+import agentlearning.tool.*;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Scanner;
 
-@SpringBootApplication
 public class Main {
-
     public static void main(String[] args) throws Exception {
-        // 从环境变量读 key
         String apiKey = System.getenv("DEEPSEEK_API_KEY");
         if (apiKey == null || apiKey.isBlank()) {
             System.out.println("请先设置环境变量 DEEPSEEK_API_KEY");
             return;
         }
 
-        // 组装：客户端 + 工具注册表 + Agent
-        DeepSeekClient client = new DeepSeekClient(apiKey);
-        ToolRegistry toolRegistry = new ToolRegistry();
-        toolRegistry.register(new ReadFileTool());   // 注册工具
-        Agent agent = new Agent(client, toolRegistry);
+        // 项目根 = 程序运行时的当前目录
+        String projectPath = System.getProperty("user.dir");
+        System.out.println("项目根目录: " + projectPath);
 
+        PathGuard pathGuard = new PathGuard(projectPath);
         Scanner scanner = new Scanner(System.in);
-        System.out.println("minicli (阶段2) 已启动，输入 exit 退出。");
+        ApprovalHandler approvalHandler = new ApprovalHandler(scanner);
+
+        // 注册全部工具
+        ToolRegistry toolRegistry = new ToolRegistry();
+        toolRegistry.register(new ReadFileTool(pathGuard));
+        toolRegistry.register(new WriteFileTool(pathGuard));
+        toolRegistry.register(new ListDirTool(pathGuard));
+        toolRegistry.register(new ExecuteCommandTool(projectPath));
+
+        DeepSeekClient client = new DeepSeekClient(apiKey);
+        Agent agent = new Agent(client, toolRegistry, approvalHandler);
+
+        System.out.println("minicli (阶段3) 已启动，输入 exit 退出。");
         while (true) {
             System.out.print("\n你: ");
             String input = scanner.nextLine();
@@ -40,5 +43,4 @@ public class Main {
             System.out.println("助手: " + reply);
         }
     }
-
 }
