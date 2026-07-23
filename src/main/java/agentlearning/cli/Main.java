@@ -3,6 +3,7 @@ package agentlearning.cli;
 import agentlearning.agent.Agent;
 import agentlearning.hitl.ApprovalHandler;
 import agentlearning.llm.DeepSeekClient;
+import agentlearning.memory.LongTermMemory;
 import agentlearning.policy.PathGuard;
 import agentlearning.tool.*;
 
@@ -32,13 +33,30 @@ public class Main {
         toolRegistry.register(new ExecuteCommandTool(projectPath));
 
         DeepSeekClient client = new DeepSeekClient(apiKey);
-        Agent agent = new Agent(client, toolRegistry, approvalHandler);
+
+        // 启动时创建长期记忆，把它注入 system prompt
+        LongTermMemory memory = new LongTermMemory();
+        String systemPrompt = "你是一个能调用工具的助手，需要时调用工具，不要编造。"
+                + memory.asPromptSection();   // ← 把长期记忆拼进 system prompt
+        Agent agent = new Agent(client, toolRegistry, approvalHandler, systemPrompt);
 
         System.out.println("minicli (阶段3) 已启动，输入 exit 退出。");
+        // 主循环里加 /save 命令处理
         while (true) {
             System.out.print("\n你: ");
             String input = scanner.nextLine();
             if ("exit".equalsIgnoreCase(input.trim())) break;
+
+            // 斜杠命令：/save 内容
+            if (input.startsWith("/save ")) {
+                String content = input.substring(6).trim();
+                if (!content.isBlank()) {
+                    memory.save(content);
+                    System.out.println("已保存到长期记忆: " + content);
+                }
+                continue;   // 不进 Agent
+            }
+
             String reply = agent.run(input);
             System.out.println("助手: " + reply);
         }
