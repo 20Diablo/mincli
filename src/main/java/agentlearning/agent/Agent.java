@@ -21,7 +21,7 @@ public class Agent {
     // 构造函数里新增 compactor
     private final ConversationHistoryCompactor compactor;
     private final int compactionTriggerTokens;   // 压缩触发阈值
-    private static final int MAX_ITERATIONS = 10;
+    private static final int MAX_ITERATIONS = 3000;
 
     public Agent(DeepSeekClient client, ToolRegistry toolRegistry, ApprovalHandler approvalHandler, String systemPrompt) {
         this.client = client;
@@ -30,7 +30,7 @@ public class Agent {
         this.compactor = new ConversationHistoryCompactor(client);
         // 触发阈值：真实项目按"窗口 - 预留"算。练手先给个小值方便测试，比如 3000。
         // 正式可设为窗口的 60-80%。
-        this.compactionTriggerTokens = 3000;
+        this.compactionTriggerTokens = 10;
         history.add(Message.system(systemPrompt));
     }
 
@@ -73,5 +73,10 @@ public class Agent {
             history.add(Message.assistant(result.content));
             return result.content;
         }
+    }
+
+    public void refreshSystemPrompt(String newSystemPrompt) {
+        // history 的第 0 条就是 system 消息，替换它
+        history.set(0, Message.system(newSystemPrompt));
     }
 }

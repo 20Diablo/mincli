@@ -18,7 +18,11 @@ public class DeepSeekClient {
 
     private final String apiKey;
     private final String model;
-    private final OkHttpClient http = new OkHttpClient();
+    private final OkHttpClient http = new OkHttpClient.Builder()
+            .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)   // ← 关键
+            .build();
     private final ObjectMapper mapper = new ObjectMapper();
 
     public DeepSeekClient(String apiKey) { this(apiKey, "deepseek-chat"); }

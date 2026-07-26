@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 简版长期记忆：一行一条，存到 ~/.minicli/memory.txt。
+ * 简版长期记忆：一行一条，存到 C:\Users\Aprilia\.minicli\memory.txt。
  * 启动时读回，注入 system prompt，让模型跨会话记住稳定事实。
  */
 public class LongTermMemory {
