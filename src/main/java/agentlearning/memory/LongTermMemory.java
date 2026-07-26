@@ -33,6 +33,15 @@ public class LongTermMemory {
         }
     }
 
+    /** 清空全部长期记忆 */
+    public void clear() {
+        try {
+            Files.deleteIfExists(file);
+        } catch (IOException e) {
+            System.out.println("清空记忆失败: " + e.getMessage());
+        }
+    }
+
     /** 读出所有记忆 */
     public List<String> loadAll() {
         try {

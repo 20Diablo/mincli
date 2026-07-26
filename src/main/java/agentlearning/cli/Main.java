@@ -36,7 +36,7 @@ public class Main {
 
         // 启动时创建长期记忆，把它注入 system prompt
         LongTermMemory memory = new LongTermMemory();
-        String systemPrompt = """
+        String basePrompt = """
         你是一个能调用工具的编程助手。
 
         工具使用规则：
@@ -44,8 +44,10 @@ public class Main {
         - 纯知识性问题（讲解概念、原理、语法、算法等）直接用你已有的知识回答，不要调用任何工具。
         - 不确定文件是否存在时，不要凭空猜测去读；先问用户或说明你需要什么。
         - 不要编造工具返回的内容。
-        """ + memory.asPromptSection();// ← 把长期记忆拼进 system prompt
-        Agent agent = new Agent(client, toolRegistry, approvalHandler, systemPrompt);
+        """;
+        // system prompt = 基础规则 + 长期记忆
+        Agent agent = new Agent(client, toolRegistry, approvalHandler,
+                basePrompt + memory.asPromptSection());
 
         System.out.println("minicli (阶段3) 已启动，输入 exit 退出。");
         // 主循环里加 /save 命令处理
@@ -60,11 +62,32 @@ public class Main {
                 if (!content.isBlank()) {
                     memory.save(content);
                     // 重新拼 system prompt 并刷新到运行中的 Agent
-                    agent.refreshSystemPrompt(
-                            "你是一个能调用工具的助手，需要时调用工具，不要编造。"
-                                    + memory.asPromptSection());
+                    agent.refreshSystemPrompt(basePrompt + memory.asPromptSection());
                     System.out.println("已保存到长期记忆: " + content);
                 }
+                continue;
+            }
+
+            // 斜杠命令：/memory list —— 查看全部长期记忆
+            if ("/memory list".equals(input.trim())) {
+                java.util.List<String> all = memory.loadAll();
+                if (all.isEmpty()) {
+                    System.out.println("长期记忆为空。");
+                } else {
+                    System.out.println("长期记忆（共 " + all.size() + " 条）:");
+                    for (int i = 0; i < all.size(); i++) {
+                        System.out.println("  " + (i + 1) + ". " + all.get(i));
+                    }
+                }
+                continue;
+            }
+
+            // 斜杠命令：/memory clear —— 清空长期记忆，并让当前会话立即生效
+            if ("/memory clear".equals(input.trim())) {
+                memory.clear();
+                // 刷新 system prompt：此时 asPromptSection() 返回空，记忆段被移除
+                agent.refreshSystemPrompt(basePrompt + memory.asPromptSection());
+                System.out.println("已清空全部长期记忆。");
                 continue;
             }
 
