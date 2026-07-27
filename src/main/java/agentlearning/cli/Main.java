@@ -1,9 +1,11 @@
 package agentlearning.cli;
 
 import agentlearning.agent.Agent;
+import agentlearning.agent.PlanExecuteAgent;
 import agentlearning.hitl.ApprovalHandler;
 import agentlearning.llm.DeepSeekClient;
 import agentlearning.memory.LongTermMemory;
+import agentlearning.plan.Planner;
 import agentlearning.policy.PathGuard;
 import agentlearning.tool.*;
 
@@ -49,6 +51,15 @@ public class Main {
         Agent agent = new Agent(client, toolRegistry, approvalHandler,
                 basePrompt + memory.asPromptSection());
 
+        // ↓↓↓ 新增：Planner + PlanExecuteAgent
+        Planner planner = new Planner(client);
+        PlanExecuteAgent planAgent = new PlanExecuteAgent(
+                planner,
+                // 工厂：每个子任务 new 一个全新 Agent，并带上最新的长期记忆
+                () -> new Agent(client, toolRegistry, approvalHandler,
+                        basePrompt + memory.asPromptSection())
+        );
+
         System.out.println("minicli (阶段3) 已启动，输入 exit 退出。");
         // 主循环里加 /save 命令处理
         while (true) {
@@ -88,6 +99,15 @@ public class Main {
                 // 刷新 system prompt：此时 asPromptSection() 返回空，记忆段被移除
                 agent.refreshSystemPrompt(basePrompt + memory.asPromptSection());
                 System.out.println("已清空全部长期记忆。");
+                continue;
+            }
+
+            if (input.startsWith("/plan ")) {
+                String goal = input.substring(6).trim();   // "/plan " 正好 6 个字符
+                if (!goal.isBlank()) {
+                    String report = planAgent.run(goal);
+                    System.out.println(report);
+                }
                 continue;
             }
 
