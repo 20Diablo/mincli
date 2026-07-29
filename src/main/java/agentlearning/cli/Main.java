@@ -4,6 +4,10 @@ import agentlearning.agent.Agent;
 import agentlearning.agent.PlanExecuteAgent;
 import agentlearning.hitl.ApprovalHandler;
 import agentlearning.llm.DeepSeekClient;
+import agentlearning.mcp.McpClient;
+import agentlearning.mcp.McpTool;
+import agentlearning.mcp.McpToolAdapter;
+import agentlearning.mcp.StdioTransport;
 import agentlearning.memory.LongTermMemory;
 import agentlearning.plan.Planner;
 import agentlearning.policy.PathGuard;
@@ -35,6 +39,23 @@ public class Main {
         toolRegistry.register(new ExecuteCommandTool(projectPath));
 
         DeepSeekClient client = new DeepSeekClient(apiKey);
+
+        // 启动一个 MCP server（以官方 everything server 为例，它有很多示例工具）
+        try {
+            boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
+            StdioTransport transport = new StdioTransport(
+                    isWindows ? "npx.cmd" : "npx",
+                    java.util.List.of("-y", "@modelcontextprotocol/server-everything"));
+            McpClient mcpClient = new McpClient("everything", transport);
+            mcpClient.initialize();                       // 握手
+            for (McpTool t : mcpClient.listTools()) {     // 发现工具
+                toolRegistry.register(new McpToolAdapter(mcpClient, t));   // 注册进 ToolRegistry
+                System.out.println("已注册 MCP 工具: " + t.namespacedName());
+            }
+            // 注意：mcpClient 要在程序退出时 close()，练手可以先不管，或用 Runtime.addShutdownHook
+        } catch (Exception e) {
+            System.out.println("MCP server 启动失败（不影响其他功能）: " + e.getMessage());
+        }
 
         // 启动时创建长期记忆，把它注入 system prompt
         LongTermMemory memory = new LongTermMemory();
