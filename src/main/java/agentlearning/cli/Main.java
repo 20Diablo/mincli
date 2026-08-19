@@ -12,6 +12,7 @@ import agentlearning.memory.LongTermMemory;
 import agentlearning.plan.Planner;
 import agentlearning.policy.PathGuard;
 import agentlearning.tool.*;
+import agentlearning.agent.AgentOrchestrator;
 
 import java.util.Scanner;
 
@@ -80,6 +81,8 @@ public class Main {
                 () -> new Agent(client, toolRegistry, approvalHandler,
                         basePrompt + memory.asPromptSection())
         );
+        // 组装 AgentOrchestrator
+        AgentOrchestrator teamAgent = new AgentOrchestrator(client, toolRegistry, approvalHandler);
 
         System.out.println("minicli (阶段3) 已启动，输入 exit 退出。");
         // 主循环里加 /save 命令处理
@@ -127,6 +130,14 @@ public class Main {
                 String goal = input.substring(6).trim();   // "/plan " 正好 6 个字符
                 if (!goal.isBlank()) {
                     String report = planAgent.run(goal);
+                    System.out.println(report);
+                }
+                continue;
+            }
+            if (input.startsWith("/team ")) {
+                String goal = input.substring(6).trim();
+                if (!goal.isBlank()) {
+                    String report = teamAgent.run(goal);
                     System.out.println(report);
                 }
                 continue;
