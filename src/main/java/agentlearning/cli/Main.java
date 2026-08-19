@@ -13,6 +13,8 @@ import agentlearning.plan.Planner;
 import agentlearning.policy.PathGuard;
 import agentlearning.tool.*;
 import agentlearning.agent.AgentOrchestrator;
+import agentlearning.rag.CodeIndex;
+import agentlearning.tool.SearchCodeTool;
 
 import java.util.Scanner;
 
@@ -38,6 +40,9 @@ public class Main {
         toolRegistry.register(new WriteFileTool(pathGuard));
         toolRegistry.register(new ListDirTool(pathGuard));
         toolRegistry.register(new ExecuteCommandTool(projectPath));
+
+        CodeIndex codeIndex = new CodeIndex();
+        toolRegistry.register(new SearchCodeTool(codeIndex));
 
         DeepSeekClient client = new DeepSeekClient(apiKey);
 
@@ -134,6 +139,18 @@ public class Main {
                 }
                 continue;
             }
+
+            if (input.equals("/index")) {
+                int count = codeIndex.indexDirectory(projectPath);
+                System.out.println("已索引 " + count + " 个代码块");
+                continue;
+            }
+            if (input.startsWith("/index ")) {
+                int count = codeIndex.indexDirectory(input.substring(7).trim());
+                System.out.println("已索引 " + count + " 个代码块");
+                continue;
+            }
+
             if (input.startsWith("/team ")) {
                 String goal = input.substring(6).trim();
                 if (!goal.isBlank()) {
