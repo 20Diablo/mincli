@@ -9,6 +9,9 @@ import agentlearning.mcp.McpTool;
 import agentlearning.mcp.McpToolAdapter;
 import agentlearning.mcp.StdioTransport;
 import agentlearning.memory.LongTermMemory;
+import agentlearning.memory.MemoryEntry;
+import agentlearning.memory.MemoryStore;
+import agentlearning.memory.MemoryType;
 import agentlearning.plan.Planner;
 import agentlearning.policy.PathGuard;
 import agentlearning.tool.*;
@@ -64,7 +67,7 @@ public class Main {
         }
 
         // 启动时创建长期记忆，把它注入 system prompt
-        LongTermMemory memory = new LongTermMemory();
+        MemoryStore memory = new MemoryStore();
         String basePrompt = """
         你是一个能调用工具的编程助手。
 
@@ -98,25 +101,38 @@ public class Main {
 
             // 斜杠命令：/save 内容
             if (input.startsWith("/save ")) {
-                String content = input.substring(6).trim();
+                String rest = input.substring(6).trim();
+                MemoryType type = MemoryType.FACT;   // 默认当事实存
+                String content = rest;
+
+                // 支持 "/save tool 某个结果" 这种前缀指定类型
+                for (MemoryType t : MemoryType.values()) {
+                    String prefix = t.name().toLowerCase() + " ";   // 如 "tool_result "
+                    if (rest.toLowerCase().startsWith(prefix)) {
+                        type = t;
+                        content = rest.substring(prefix.length()).trim();
+                        break;
+                    }
+                }
+
                 if (!content.isBlank()) {
-                    memory.save(content);
-                    // 重新拼 system prompt 并刷新到运行中的 Agent
+                    memory.save(type, content);
                     agent.refreshSystemPrompt(basePrompt + memory.asPromptSection());
-                    System.out.println("已保存到长期记忆: " + content);
+                    System.out.println("已保存 [" + type.label() + "] 记忆: " + content);
                 }
                 continue;
             }
 
             // 斜杠命令：/memory list —— 查看全部长期记忆
             if ("/memory list".equals(input.trim())) {
-                java.util.List<String> all = memory.loadAll();
+                var all = memory.loadAll();
                 if (all.isEmpty()) {
                     System.out.println("长期记忆为空。");
                 } else {
-                    System.out.println("长期记忆（共 " + all.size() + " 条）:");
+                    System.out.println("长期记忆(共 " + all.size() + " 条):");
                     for (int i = 0; i < all.size(); i++) {
-                        System.out.println("  " + (i + 1) + ". " + all.get(i));
+                        MemoryEntry e = all.get(i);
+                        System.out.println("  " + (i + 1) + ". [" + e.getType().label() + "] " + e.getContent());
                     }
                 }
                 continue;
