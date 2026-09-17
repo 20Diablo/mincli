@@ -49,7 +49,9 @@ public class Planner {
 
         String json = extractJson(result.content);   // 容错：剥掉可能的 markdown 包裹
         JsonNode root = mapper.readTree(json);
-
+        /**
+         * 把大模型返回的 JSON 计划，逐条翻译成 Java 的 Task 对象，塞进 ExecutionPlan——也就是把模型"写"出来的 DAG，变成内存里真正的节点和边。
+         */
         ExecutionPlan plan = new ExecutionPlan(goal);
         for (JsonNode taskNode : root.path("tasks")) {
             String id = taskNode.path("id").asText();

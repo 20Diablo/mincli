@@ -76,10 +76,15 @@ public class Main {
         - 纯知识性问题（讲解概念、原理、语法、算法等）直接用你已有的知识回答，不要调用任何工具。
         - 不确定文件是否存在时，不要凭空猜测去读；先问用户或说明你需要什么。
         - 不要编造工具返回的内容。
+        记忆规则：
+                - 当用户说"记一下""记住""以后记得"时，调用 save_memory 工具保存这条稳定事实/偏好。
+                - 只保存跨会话可复用的稳定信息（偏好、约定），不要保存一次性任务或临时内容。
         """;
         // system prompt = 基础规则 + 长期记忆
         Agent agent = new Agent(client, toolRegistry, approvalHandler,
                 basePrompt + memory.asPromptSection());
+        toolRegistry.register(new SaveMemoryTool(memory,
+                () -> agent.refreshSystemPrompt(basePrompt + memory.asPromptSection())));
 
         // ↓↓↓ 新增：Planner + PlanExecuteAgent
         Planner planner = new Planner(client);
