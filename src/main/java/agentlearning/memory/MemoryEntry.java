@@ -1,15 +1,18 @@
 package agentlearning.memory;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import java.util.HashMap;
+import java.util.Map;
 
-@JsonIgnoreProperties(ignoreUnknown = true)   // 反序列化时忽略不认识的字段,便于以后加字段
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class MemoryEntry {
 
-    private MemoryType type;    // 记忆类型
-    private String content;     // 记忆内容
-    private long createdAt;     // 创建时间(毫秒时间戳)
+    private MemoryType type;
+    private String content;
+    private long createdAt;
+    private Map<String, String> metadata = new HashMap<>();   // 来源、工具名等
 
-    public MemoryEntry() {}     // Jackson 反序列化需要无参构造
+    public MemoryEntry() {}
 
     public MemoryEntry(MemoryType type, String content, long createdAt) {
         this.type = type;
@@ -17,15 +20,15 @@ public class MemoryEntry {
         this.createdAt = createdAt;
     }
 
-    // Jackson 靠 getter 发现字段,所以必须有 getter/setter
     public MemoryType getType() { return type; }
     public void setType(MemoryType type) { this.type = type; }
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
     public long getCreatedAt() { return createdAt; }
     public void setCreatedAt(long createdAt) { this.createdAt = createdAt; }
+    public Map<String, String> getMetadata() { return metadata; }
+    public void setMetadata(Map<String, String> metadata) { this.metadata = metadata; }
 
-    /** 给 system prompt 用的展示格式 */
     public String toPromptLine() {
         return "- [" + (type == null ? "记忆" : type.label()) + "] " + content;
     }

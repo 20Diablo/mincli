@@ -6,6 +6,7 @@ import agentlearning.llm.DeepSeekClient;
 import agentlearning.llm.Message;
 import agentlearning.llm.ToolCall;
 import agentlearning.memory.ConversationHistoryCompactor;
+import agentlearning.memory.MemoryManager;
 import agentlearning.tool.Tool;
 import agentlearning.tool.ToolRegistry;
 
@@ -14,33 +15,53 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class Agent {
+
     private final DeepSeekClient client;
     private final ToolRegistry toolRegistry;
-    private final ApprovalHandler approvalHandler;   // ← 新增
+    private final ApprovalHandler approvalHandler;
+    private final MemoryManager memoryManager;            // 可为 null（子 Agent 不记录记忆）
     private final List<Message> history = new ArrayList<>();
-    // 构造函数里新增 compactor
     private final ConversationHistoryCompactor compactor;
-    private final int compactionTriggerTokens;   // 压缩触发阈值
-    private static final int MAX_ITERATIONS = 3000;
+    private final int compactionTriggerTokens;
 
-    public Agent(DeepSeekClient client, ToolRegistry toolRegistry, ApprovalHandler approvalHandler, String systemPrompt) {
+    /** 迭代兜底：防止模型陷入死循环，正常退出由模型自决（不再返回 tool_calls） */
+    private static final int MAX_ITERATIONS = 10;
+
+    /** 压缩触发阈值：实战按"窗口 - 预留"算；测试压缩时可临时调小（如 300） */
+    private static final int COMPACTION_TRIGGER_TOKENS = 3000;
+
+    /** 不带记忆的构造（子 Agent / Plan 子任务用） */
+    public Agent(DeepSeekClient client, ToolRegistry toolRegistry,
+                 ApprovalHandler approvalHandler, String systemPrompt) {
+        this(client, toolRegistry, approvalHandler, systemPrompt, null);
+    }
+
+    /** 带记忆的构造（主 Agent 用） */
+    public Agent(DeepSeekClient client, ToolRegistry toolRegistry,
+                 ApprovalHandler approvalHandler, String systemPrompt,
+                 MemoryManager memoryManager) {
         this.client = client;
         this.toolRegistry = toolRegistry;
         this.approvalHandler = approvalHandler;
+        this.memoryManager = memoryManager;
         this.compactor = new ConversationHistoryCompactor(client);
-        // 触发阈值：真实项目按"窗口 - 预留"算。练手先给个小值方便测试，比如 3000。
-        // 正式可设为窗口的 60-80%。
-        this.compactionTriggerTokens = 10;
+        this.compactionTriggerTokens = COMPACTION_TRIGGER_TOKENS;
         history.add(Message.system(systemPrompt));
     }
 
     public String run(String userInput) throws IOException {
         history.add(Message.user(userInput));
+        if (memoryManager != null) {
+            memoryManager.recordUserMessage(userInput);       // CONVERSATION
+        }
+
         int iteration = 0;
         while (true) {
-            if (++iteration > MAX_ITERATIONS) return "已达到最大迭代次数，停止。";
+            if (++iteration > MAX_ITERATIONS) {
+                return "已达到最大迭代次数，停止。";
+            }
 
-            // ★ 调 LLM 前，评估并按需压缩历史
+            // 调 LLM 前，评估并按需压缩历史
             compactor.compactIfNeeded(history, compactionTriggerTokens);
 
             ChatResult result = client.chat(history, toolRegistry);
@@ -65,18 +86,25 @@ public class Agent {
                         System.out.println("  [调用工具] " + toolName + " 参数=" + args);
                         toolResult = tool.execute(args);
                     }
+
                     history.add(Message.tool(call.getId(), toolResult));
+                    if (memoryManager != null) {
+                        memoryManager.recordToolResult(toolName, toolResult);   // TOOL_RESULT
+                    }
                 }
                 continue;
             }
 
             history.add(Message.assistant(result.content));
+            if (memoryManager != null) {
+                memoryManager.recordAssistantMessage(result.content);          // CONVERSATION
+            }
             return result.content;
         }
     }
 
+    /** 刷新 system prompt（history 第 0 条） */
     public void refreshSystemPrompt(String newSystemPrompt) {
-        // history 的第 0 条就是 system 消息，替换它
         history.set(0, Message.system(newSystemPrompt));
     }
 }

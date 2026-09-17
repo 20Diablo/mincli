@@ -1,6 +1,7 @@
 package agentlearning.cli;
 
 import agentlearning.agent.Agent;
+import agentlearning.agent.AgentOrchestrator;
 import agentlearning.agent.PlanExecuteAgent;
 import agentlearning.hitl.ApprovalHandler;
 import agentlearning.llm.DeepSeekClient;
@@ -8,16 +9,11 @@ import agentlearning.mcp.McpClient;
 import agentlearning.mcp.McpTool;
 import agentlearning.mcp.McpToolAdapter;
 import agentlearning.mcp.StdioTransport;
-import agentlearning.memory.LongTermMemory;
-import agentlearning.memory.MemoryEntry;
-import agentlearning.memory.MemoryStore;
-import agentlearning.memory.MemoryType;
+import agentlearning.memory.*;
 import agentlearning.plan.Planner;
 import agentlearning.policy.PathGuard;
-import agentlearning.tool.*;
-import agentlearning.agent.AgentOrchestrator;
 import agentlearning.rag.CodeIndex;
-import agentlearning.tool.SearchCodeTool;
+import agentlearning.tool.*;
 
 import java.util.Scanner;
 
@@ -29,7 +25,6 @@ public class Main {
             return;
         }
 
-        // 项目根 = 程序运行时的当前目录
         String projectPath = System.getProperty("user.dir");
         System.out.println("项目根目录: " + projectPath);
 
@@ -37,7 +32,6 @@ public class Main {
         Scanner scanner = new Scanner(System.in);
         ApprovalHandler approvalHandler = new ApprovalHandler(scanner);
 
-        // 注册全部工具
         ToolRegistry toolRegistry = new ToolRegistry();
         toolRegistry.register(new ReadFileTool(pathGuard));
         toolRegistry.register(new WriteFileTool(pathGuard));
@@ -49,140 +43,118 @@ public class Main {
 
         DeepSeekClient client = new DeepSeekClient(apiKey);
 
-        // 启动一个 MCP server（以官方 everything server 为例，它有很多示例工具）
+        // ---- MCP ----
         try {
             boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
             StdioTransport transport = new StdioTransport(
                     isWindows ? "npx.cmd" : "npx",
                     java.util.List.of("-y", "@modelcontextprotocol/server-everything"));
             McpClient mcpClient = new McpClient("everything", transport);
-            mcpClient.initialize();                       // 握手
-            for (McpTool t : mcpClient.listTools()) {     // 发现工具
-                toolRegistry.register(new McpToolAdapter(mcpClient, t));   // 注册进 ToolRegistry
+            mcpClient.initialize();
+            for (McpTool t : mcpClient.listTools()) {
+                toolRegistry.register(new McpToolAdapter(mcpClient, t));
                 System.out.println("已注册 MCP 工具: " + t.namespacedName());
             }
-            // 注意：mcpClient 要在程序退出时 close()，练手可以先不管，或用 Runtime.addShutdownHook
         } catch (Exception e) {
             System.out.println("MCP server 启动失败（不影响其他功能）: " + e.getMessage());
         }
 
-        // 启动时创建长期记忆，把它注入 system prompt
-        MemoryStore memory = new MemoryStore();
+        // ---- 记忆 ----
+        MemoryManager memory = new MemoryManager();
         String basePrompt = """
-        你是一个能调用工具的编程助手。
+            你是一个能调用工具的编程助手。
 
-        工具使用规则：
-        - 只有当任务确实需要读写用户项目里的文件、列目录、或执行命令时，才调用工具。
-        - 纯知识性问题（讲解概念、原理、语法、算法等）直接用你已有的知识回答，不要调用任何工具。
-        - 不确定文件是否存在时，不要凭空猜测去读；先问用户或说明你需要什么。
-        - 不要编造工具返回的内容。
-        记忆规则：
-                - 当用户说"记一下""记住""以后记得"时，调用 save_memory 工具保存这条稳定事实/偏好。
-                - 只保存跨会话可复用的稳定信息（偏好、约定），不要保存一次性任务或临时内容。
-        """;
-        // system prompt = 基础规则 + 长期记忆
+            工具使用规则：
+            - 只有当任务确实需要读写用户项目里的文件、列目录、或执行命令时，才调用工具。
+            - 纯知识性问题（讲解概念、原理、语法、算法等）直接用你已有的知识回答，不要调用任何工具。
+            - 不确定文件是否存在时，不要凭空猜测去读；先问用户或说明你需要什么。
+            - 不要编造工具返回的内容。
+
+            记忆规则：
+            - 当用户说"记一下""记住""以后记得"时，调用 save_memory 工具保存这条稳定事实/偏好。
+            - 只保存跨会话可复用的稳定信息（偏好、约定），不要保存一次性任务或临时内容。
+            """;
+
         Agent agent = new Agent(client, toolRegistry, approvalHandler,
-                basePrompt + memory.asPromptSection());
-        toolRegistry.register(new SaveMemoryTool(memory,
-                () -> agent.refreshSystemPrompt(basePrompt + memory.asPromptSection())));
+                basePrompt + memory.promptSection(), memory);
 
-        // ↓↓↓ 新增：Planner + PlanExecuteAgent
+        // save_memory：保存后刷新当前会话的 system prompt
+        toolRegistry.register(new SaveMemoryTool(memory,
+                () -> agent.refreshSystemPrompt(basePrompt + memory.promptSection())));
+
         Planner planner = new Planner(client);
-        PlanExecuteAgent planAgent = new PlanExecuteAgent(
-                planner,
-                // 工厂：每个子任务 new 一个全新 Agent，并带上最新的长期记忆
+        PlanExecuteAgent planAgent = new PlanExecuteAgent(planner,
                 () -> new Agent(client, toolRegistry, approvalHandler,
-                        basePrompt + memory.asPromptSection())
-        );
-        // 组装 AgentOrchestrator
+                        basePrompt + memory.promptSection(), memory));
+
         AgentOrchestrator teamAgent = new AgentOrchestrator(client, toolRegistry, approvalHandler);
 
-        System.out.println("minicli (阶段3) 已启动，输入 exit 退出。");
-        // 主循环里加 /save 命令处理
+        System.out.println("minicli 已启动，输入 exit 退出。");
         while (true) {
             System.out.print("\n你: ");
             String input = scanner.nextLine();
             if ("exit".equalsIgnoreCase(input.trim())) break;
 
-            // 斜杠命令：/save 内容
+            // /save：存长期事实（FACT）
             if (input.startsWith("/save ")) {
-                String rest = input.substring(6).trim();
-                MemoryType type = MemoryType.FACT;   // 默认当事实存
-                String content = rest;
-
-                // 支持 "/save tool 某个结果" 这种前缀指定类型
-                for (MemoryType t : MemoryType.values()) {
-                    String prefix = t.name().toLowerCase() + " ";   // 如 "tool_result "
-                    if (rest.toLowerCase().startsWith(prefix)) {
-                        type = t;
-                        content = rest.substring(prefix.length()).trim();
-                        break;
-                    }
-                }
-
+                String content = input.substring(6).trim();
                 if (!content.isBlank()) {
-                    memory.save(type, content);
-                    agent.refreshSystemPrompt(basePrompt + memory.asPromptSection());
-                    System.out.println("已保存 [" + type.label() + "] 记忆: " + content);
+                    memory.storeFact(content);
+                    agent.refreshSystemPrompt(basePrompt + memory.promptSection());
+                    System.out.println("已保存到长期记忆: " + content);
                 }
                 continue;
             }
 
-            // 斜杠命令：/memory list —— 查看全部长期记忆
-            if ("/memory list".equals(input.trim())) {
-                var all = memory.loadAll();
-                if (all.isEmpty()) {
-                    System.out.println("长期记忆为空。");
-                } else {
-                    System.out.println("长期记忆(共 " + all.size() + " 条):");
-                    for (int i = 0; i < all.size(); i++) {
-                        MemoryEntry e = all.get(i);
-                        System.out.println("  " + (i + 1) + ". [" + e.getType().label() + "] " + e.getContent());
-                    }
+            // /memory：按类型统计 + 列出长期记忆
+            if ("/memory".equals(input.trim())) {
+                var counts = memory.countByType();
+                System.out.println("记忆统计:");
+                for (MemoryType t : MemoryType.values()) {
+                    System.out.println("  " + t.label() + ": " + counts.getOrDefault(t, 0) + " 条");
                 }
+                var facts = memory.longTermEntries();
+                System.out.println("长期记忆(FACT):");
+                if (facts.isEmpty()) System.out.println("  (空)");
+                else for (int i = 0; i < facts.size(); i++)
+                    System.out.println("  " + (i + 1) + ". " + facts.get(i).getContent());
                 continue;
             }
 
-            // 斜杠命令：/memory clear —— 清空长期记忆，并让当前会话立即生效
             if ("/memory clear".equals(input.trim())) {
-                memory.clear();
-                // 刷新 system prompt：此时 asPromptSection() 返回空，记忆段被移除
-                agent.refreshSystemPrompt(basePrompt + memory.asPromptSection());
-                System.out.println("已清空全部长期记忆。");
+                memory.clearLongTerm();
+                agent.refreshSystemPrompt(basePrompt + memory.promptSection());
+                System.out.println("已清空长期记忆。");
                 continue;
             }
 
             if (input.startsWith("/plan ")) {
-                String goal = input.substring(6).trim();   // "/plan " 正好 6 个字符
-                if (!goal.isBlank()) {
-                    String report = planAgent.run(goal);
-                    System.out.println(report);
-                }
+                String goal = input.substring(6).trim();
+                if (!goal.isBlank()) System.out.println(planAgent.run(goal));
                 continue;
             }
 
             if (input.equals("/index")) {
-                int count = codeIndex.indexDirectory(projectPath);
-                System.out.println("已索引 " + count + " 个代码块");
+                System.out.println("已索引 " + codeIndex.indexDirectory(projectPath) + " 个代码块");
                 continue;
             }
             if (input.startsWith("/index ")) {
-                int count = codeIndex.indexDirectory(input.substring(7).trim());
-                System.out.println("已索引 " + count + " 个代码块");
+                String dir = input.substring(7).trim();
+                if (!java.nio.file.Files.isDirectory(java.nio.file.Path.of(dir))) {
+                    System.out.println("路径不是目录: " + dir);
+                    continue;
+                }
+                System.out.println("已索引 " + codeIndex.indexDirectory(dir) + " 个代码块");
                 continue;
             }
 
             if (input.startsWith("/team ")) {
                 String goal = input.substring(6).trim();
-                if (!goal.isBlank()) {
-                    String report = teamAgent.run(goal);
-                    System.out.println(report);
-                }
+                if (!goal.isBlank()) System.out.println(teamAgent.run(goal));
                 continue;
             }
 
-            String reply = agent.run(input);
-            System.out.println("助手: " + reply);
+            System.out.println("助手: " + agent.run(input));
         }
     }
 }
